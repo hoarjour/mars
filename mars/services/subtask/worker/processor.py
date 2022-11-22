@@ -261,9 +261,7 @@ class SubtaskProcessor:
                         )
                         self.result.status = SubtaskStatus.cancelled
                         raise
-                YamlDumper.collect_runtime_operand_info(self._session_id,
-                                                        self.result.task_id,
-                                                        self.subtask_id,
+                YamlDumper.collect_runtime_operand_info(self.subtask,
                                                         timer.duration,
                                                         chunk,
                                                         self._processor_context)
@@ -454,8 +452,6 @@ class SubtaskProcessor:
 
     async def run(self, slot_id: int):
         cost_times = dict()
-        YamlDumper.enable_collect = self.subtask.extra_config.get("collect_info", False) \
-            if self.subtask.extra_config is not None else False
         self.result.status = SubtaskStatus.running
         input_keys = None
         unpinned = False
@@ -514,10 +510,7 @@ class SubtaskProcessor:
                 update_meta_chunks,
             )
             cost_times["store_meta_time"]["end_time"] = time.time()
-
-            YamlDumper.collect_runtime_subtask_info(self._session_id,
-                                                    self.result.task_id,
-                                                    self.subtask_id,
+            YamlDumper.collect_runtime_subtask_info(self.subtask,
                                                     self._band,
                                                     slot_id,
                                                     stored_keys,

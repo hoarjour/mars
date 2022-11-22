@@ -382,11 +382,7 @@ class SubtaskExecutionActor(mo.StatelessActor):
                 prepare_data_task, timeout=self._data_prepare_timeout
             )
             fetch_end = time.time()
-            YamlDumper.enable_collect = subtask.extra_config.get("collect_info", False) \
-                if subtask.extra_config is not None else False
-            YamlDumper.collect_fetch_time(subtask.session_id,
-                                          subtask.task_id,
-                                          subtask.subtask_id,
+            YamlDumper.collect_fetch_time(subtask,
                                           fetch_start,
                                           fetch_end)
 

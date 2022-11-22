@@ -74,7 +74,6 @@ class TaskProcessor:
             self._dump_subtask_graph = True
         if task.extra_config and task.extra_config.get("collect_info"):
             self._collect_info = True
-        YamlDumper.enable_collect = self._collect_info
 
         self.result = TaskResult(
             task_id=task.task_id,
@@ -230,7 +229,7 @@ class TaskProcessor:
             if self._dump_subtask_graph or self._collect_info:
                 self._subtask_graphs.append(subtask_graph)
         stage_profiler.set(f"gen_subtask_graph({len(subtask_graph)})", timer.duration)
-        YamlDumper.collect_subtask_operand_structure(subtask_graph, self._task.session_id, self.task_id, stage_id)
+        YamlDumper.collect_subtask_operand_structure(self._task, subtask_graph, stage_id)
 
         logger.info(
             "Time consuming to gen a subtask graph is %ss with session id %s, task id %s, stage id %s",
@@ -449,12 +448,8 @@ class TaskProcessor:
         if self._dump_subtask_graph:
             self.dump_subtask_graph()
 
-        YamlDumper.collect_last_node_info(self._subtask_graphs,
-                                          self._task.session_id,
-                                          self._task.task_id)
-        YamlDumper.collect_tileable_structure(self.get_tileable_to_subtasks(),
-                                              self._task.session_id,
-                                              self._task.task_id)
+        YamlDumper.collect_last_node_info(self._task, self._subtask_graphs)
+        YamlDumper.collect_tileable_structure(self._task, self.get_tileable_to_subtasks())
 
         if MARS_ENABLE_PROFILING or (
             self._task.extra_config and self._task.extra_config.get("enable_profiling")
