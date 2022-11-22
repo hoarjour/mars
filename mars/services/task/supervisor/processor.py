@@ -32,6 +32,7 @@ from ....utils import Timer
 from ...subtask import SubtaskResult, Subtask
 from ..core import Task, TaskResult, TaskStatus, new_task_id
 from ..execution.api import TaskExecutor, ExecutionChunkResult
+from .graph_visualizer import YamlDumper
 from .preprocessor import TaskPreprocessor
 
 logger = logging.getLogger(__name__)
@@ -65,11 +66,15 @@ class TaskProcessor:
             ProfilingData.init(task.task_id, task.extra_config["enable_profiling"])
 
         self._dump_subtask_graph = False
+        self._collect_info = False
         self._subtask_graphs = []
         if MARS_ENABLE_DUMPING_SUBTASK_GRAPH or (
             task.extra_config and task.extra_config.get("dump_subtask_graph")
         ):
             self._dump_subtask_graph = True
+        if task.extra_config and task.extra_config.get("collect_info"):
+            self._collect_info = True
+        YamlDumper.enable_collect = self._collect_info
 
         self.result = TaskResult(
             task_id=task.task_id,
@@ -222,9 +227,11 @@ class TaskProcessor:
                 op_to_bands=fetch_op_to_bands,
                 shuffle_fetch_type=shuffle_fetch_type,
             )
-            if self._dump_subtask_graph:
+            if self._dump_subtask_graph or self._collect_info:
                 self._subtask_graphs.append(subtask_graph)
         stage_profiler.set(f"gen_subtask_graph({len(subtask_graph)})", timer.duration)
+        YamlDumper.collect_subtask_operand_structure(subtask_graph, self._task.session_id, self.task_id, stage_id)
+
         logger.info(
             "Time consuming to gen a subtask graph is %ss with session id %s, task id %s, stage id %s",
             timer.duration,
@@ -441,6 +448,14 @@ class TaskProcessor:
         self.done.set()
         if self._dump_subtask_graph:
             self.dump_subtask_graph()
+
+        YamlDumper.collect_last_node_info(self._subtask_graphs,
+                                          self._task.session_id,
+                                          self._task.task_id)
+        YamlDumper.collect_tileable_structure(self.get_tileable_to_subtasks(),
+                                              self._task.session_id,
+                                              self._task.task_id)
+
         if MARS_ENABLE_PROFILING or (
             self._task.extra_config and self._task.extra_config.get("enable_profiling")
         ):

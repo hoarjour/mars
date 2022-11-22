@@ -30,12 +30,13 @@ from ....core.operand import (
 from ....metrics import Metrics
 from ....optimization.physical import optimize
 from ....typing import BandType, ChunkType
-from ....utils import get_chunk_key_to_data_keys
+from ....utils import get_chunk_key_to_data_keys, Timer
 from ...context import ThreadedServiceContext
 from ...meta.api import MetaAPI, WorkerMetaAPI
 from ...session import SessionAPI
 from ...storage import StorageAPI
 from ...task import TaskAPI, task_options
+from ...task.supervisor.graph_visualizer import YamlDumper
 from ..core import Subtask, SubtaskStatus, SubtaskResult
 from ..utils import iter_input_data_keys, iter_output_data, get_mapper_data_keys
 
@@ -232,35 +233,40 @@ class SubtaskProcessor:
                             to_wait.set_result(fut.result())
 
                 future.add_done_callback(cb)
-
-                try:
-                    await to_wait
-                    logger.debug(
-                        "Finish executing operand: %s, chunk: %s, subtask id: %s",
-                        chunk.op,
-                        chunk,
-                        self.subtask.subtask_id,
-                    )
-                except asyncio.CancelledError:
-                    logger.debug(
-                        "Receive cancel instruction for operand: %s,"
-                        "chunk: %s, subtask id: %s",
-                        chunk.op,
-                        chunk,
-                        self.subtask.subtask_id,
-                    )
-                    # wait for this computation to finish
-                    await future
-                    # if cancelled, stop next computation
-                    logger.debug(
-                        "Cancelled operand: %s, chunk: %s, subtask id: %s",
-                        chunk.op,
-                        chunk,
-                        self.subtask.subtask_id,
-                    )
-                    self.result.status = SubtaskStatus.cancelled
-                    raise
-
+                with Timer() as timer:
+                    try:
+                        await to_wait
+                        logger.debug(
+                            "Finish executing operand: %s, chunk: %s, subtask id: %s",
+                            chunk.op,
+                            chunk,
+                            self.subtask.subtask_id,
+                        )
+                    except asyncio.CancelledError:
+                        logger.debug(
+                            "Receive cancel instruction for operand: %s,"
+                            "chunk: %s, subtask id: %s",
+                            chunk.op,
+                            chunk,
+                            self.subtask.subtask_id,
+                        )
+                        # wait for this computation to finish
+                        await future
+                        # if cancelled, stop next computation
+                        logger.debug(
+                            "Cancelled operand: %s, chunk: %s, subtask id: %s",
+                            chunk.op,
+                            chunk,
+                            self.subtask.subtask_id,
+                        )
+                        self.result.status = SubtaskStatus.cancelled
+                        raise
+                YamlDumper.collect_runtime_operand_info(self._session_id,
+                                                        self.result.task_id,
+                                                        self.subtask_id,
+                                                        timer.duration,
+                                                        chunk,
+                                                        self._processor_context)
             self.set_op_progress(chunk.op.key, 1.0)
 
             for inp in chunk_graph.iter_predecessors(chunk):
@@ -446,7 +452,10 @@ class SubtaskProcessor:
         self.result.progress = 1.0
         self.is_done.set()
 
-    async def run(self):
+    async def run(self, slot_id: int):
+        cost_times = dict()
+        YamlDumper.enable_collect = self.subtask.extra_config.get("collect_info", False) \
+            if self.subtask.extra_config is not None else False
         self.result.status = SubtaskStatus.running
         input_keys = None
         unpinned = False
@@ -467,22 +476,36 @@ class SubtaskProcessor:
             }
 
             # load inputs data
+            cost_times["load_data_time"] = dict()
+            cost_times["load_data_time"]["start_time"] = time.time()
             input_keys = await self._load_input_data()
+            cost_times["load_data_time"]["end_time"] = time.time()
             try:
                 # execute chunk graph
+                cost_times["execute_time"] = dict()
+                cost_times["execute_time"]["start_time"] = time.time()
                 await self._execute_graph(chunk_graph)
+                cost_times["execute_time"]["end_time"] = time.time()
             finally:
                 # unpin inputs data
                 unpinned = True
+                cost_times["unpin_time"] = dict()
+                cost_times["unpin_time"]["start_time"] = time.time()
                 await self._unpin_data(input_keys)
+                cost_times["unpin_time"]["end_time"] = time.time()
             # store results data
+            cost_times["store_result_time"] = dict()
+            cost_times["store_result_time"]["start_time"] = time.time()
             (
                 stored_keys,
                 store_sizes,
                 memory_sizes,
                 data_key_to_object_id,
             ) = await self._store_data(chunk_graph)
+            cost_times["store_result_time"]["end_time"] = time.time()
             # store meta
+            cost_times["store_meta_time"] = dict()
+            cost_times["store_meta_time"]["start_time"] = time.time()
             await self._store_meta(
                 chunk_graph,
                 store_sizes,
@@ -490,6 +513,18 @@ class SubtaskProcessor:
                 data_key_to_object_id,
                 update_meta_chunks,
             )
+            cost_times["store_meta_time"]["end_time"] = time.time()
+
+            YamlDumper.collect_runtime_subtask_info(self._session_id,
+                                                    self.result.task_id,
+                                                    self.subtask_id,
+                                                    self._band,
+                                                    slot_id,
+                                                    stored_keys,
+                                                    store_sizes,
+                                                    memory_sizes,
+                                                    cost_times)
+
         except asyncio.CancelledError:
             self.result.status = SubtaskStatus.cancelled
             self.result.progress = 1.0
@@ -612,7 +647,7 @@ class SubtaskProcessorActor(mo.Actor):
         await context.init()
         set_context(context)
 
-    async def run(self, subtask: Subtask):
+    async def run(self, subtask: Subtask, slot_id: int):
         logger.info(
             "Start to run subtask: %r on %s. chunk graph contains %s",
             subtask,
@@ -634,7 +669,7 @@ class SubtaskProcessorActor(mo.Actor):
             self._supervisor_address,
         )
         self._processor = self._last_processor = processor
-        self._running_aio_task = asyncio.create_task(processor.run())
+        self._running_aio_task = asyncio.create_task(processor.run(slot_id))
         try:
             result = yield self._running_aio_task
             logger.info("Finished subtask: %s", subtask.subtask_id)

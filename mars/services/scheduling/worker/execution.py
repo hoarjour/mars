@@ -18,6 +18,7 @@ import logging
 import operator
 import pprint
 import sys
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -35,6 +36,7 @@ from ...cluster import ClusterAPI
 from ...meta import MetaAPI
 from ...storage import StorageAPI
 from ...subtask import Subtask, SubtaskAPI, SubtaskResult, SubtaskStatus
+from ...task.supervisor.graph_visualizer import YamlDumper
 from .workerslot import BandSlotManagerActor
 from .quota import QuotaActor
 
@@ -370,6 +372,7 @@ class SubtaskExecutionActor(mo.StatelessActor):
         )
         try:
             logger.debug("Preparing data for subtask %s", subtask.subtask_id)
+            fetch_start = time.time()
             prepare_data_task = asyncio.create_task(
                 _retry_run(
                     subtask, subtask_info, self._prepare_input_data, subtask, band_name
@@ -378,6 +381,14 @@ class SubtaskExecutionActor(mo.StatelessActor):
             remote_mapper_keys = await asyncio.wait_for(
                 prepare_data_task, timeout=self._data_prepare_timeout
             )
+            fetch_end = time.time()
+            YamlDumper.enable_collect = subtask.extra_config.get("collect_info", False) \
+                if subtask.extra_config is not None else False
+            YamlDumper.collect_fetch_time(subtask.session_id,
+                                          subtask.task_id,
+                                          subtask.subtask_id,
+                                          fetch_start,
+                                          fetch_end)
 
             input_sizes = await self._collect_input_sizes(
                 subtask, subtask_info.supervisor_address, band_name

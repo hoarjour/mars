@@ -18,6 +18,7 @@ import os
 import sys
 import tempfile
 import time
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -44,6 +45,7 @@ from ....subtask import MockSubtaskAPI
 from ....mutable import MockMutableAPI
 from ...core import TaskStatus, TaskResult
 from ...execution.api import Fetcher, ExecutionConfig
+from ..graph_visualizer import yaml_root_dir
 from ..manager import TaskConfigurationActor, TaskManagerActor
 
 
@@ -686,3 +688,63 @@ async def test_dump_subtask_graph(actor_pool):
     pdf_path = os.path.join(tempfile.gettempdir(), f"mars-{task_id}.pdf")
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
+
+
+@pytest.mark.asyncio
+async def test_collect_info(actor_pool):
+    (
+        execution_backend,
+        pool,
+        session_id,
+        meta_api,
+        lifecycle_api,
+        storage_api,
+        manager,
+    ) = actor_pool
+
+    df = md.DataFrame(mt.random.rand(20, 20, chunk_size=5))
+    graph = TileableGraph([df.data])
+    next(TileableGraphBuilder(graph).build())
+    task_id = await manager.submit_tileable_graph(
+        graph,
+        fuse_enabled=True,
+        extra_config={"collect_info": True},
+    )
+    await manager.wait_task(task_id)
+
+    save_dir = os.path.join(yaml_root_dir, session_id, task_id)
+    assert os.path.isfile(os.path.join(save_dir, "tileable.yaml"))
+    assert os.path.isfile(os.path.join(save_dir, "operand_runtime.yaml"))
+    assert os.path.isfile(os.path.join(save_dir, "subtask_runtime.yaml"))
+    assert os.path.isfile(os.path.join(save_dir, "last_nodes.yaml"))
+    assert os.path.isfile(os.path.join(save_dir, "fetch_time.yaml"))
+
+    with open(os.path.join(save_dir, "operand_runtime.yaml"), "r") as f:
+        operand_runtime = yaml.full_load(f)
+        v = list(operand_runtime.values())[0]
+        assert "execute_time" in v
+        assert "memory_use" in v
+        assert "op_name" in v
+        assert "result_count" in v
+        assert "subtask_id" in v
+
+    with open(os.path.join(save_dir, "subtask_runtime.yaml"), "r") as f:
+        subtask_runtime = yaml.full_load(f)
+        v = list(subtask_runtime.values())[0]
+        assert "band" in v
+        assert "slot_id" in v
+        assert "execute_time" in v
+        assert "load_data_time" in v
+        assert "store_meta_time" in v
+        assert "store_result_time" in v
+        assert "unpin_time" in v
+
+    with open(os.path.join(save_dir, "last_nodes.yaml"), "r") as f:
+        last_nodes = yaml.full_load(f)
+        assert "op" in last_nodes
+        assert "subtask" in last_nodes
+
+    with open(os.path.join(save_dir, "fetch_time.yaml"), "r") as f:
+        fetch_time = yaml.full_load(f)
+        v = list(fetch_time.values())[0]
+        assert "fetch_time" in v

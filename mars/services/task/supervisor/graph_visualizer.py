@@ -11,13 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import functools
 import itertools
 from io import StringIO
+import os
+import tempfile
 from typing import Dict, List
+import yaml
 
 from ....core.operand import Fetch, FetchShuffle
+from ....typing import ChunkType, TileableType
+from ....utils import calc_data_size
 from ...subtask import Subtask, SubtaskGraph
+
+yaml_root_dir = os.path.join(tempfile.tempdir, "mars_temp_yaml")
+result_chunk_to_subtask = dict()
 
 
 class GraphVisualizer:
@@ -147,3 +155,208 @@ class GraphVisualizer:
         sio.write(f'label="{subtask.subtask_id}";\n}}')
         sio.write("\n")
         return sio.getvalue()
+
+
+def collect_verify(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if YamlDumper.enable_collect:
+            f(*args, **kwargs)
+        else:
+            pass
+
+    return wrapper
+
+
+class YamlDumper:
+
+    enable_collect: bool = False
+
+    @classmethod
+    @collect_verify
+    def collect_subtask_operand_structure(
+            cls,
+            subtask_graph: SubtaskGraph,
+            session_id: str,
+            task_id: str,
+            stage_id: str,
+            trunc_key: int = 5,
+    ):
+        save_path = os.path.join(yaml_root_dir, session_id, task_id)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        if task_id not in result_chunk_to_subtask:
+            result_chunk_to_subtask[task_id] = dict()
+
+        for subtask in subtask_graph.topological_iter():
+            chunk_graph = subtask.chunk_graph
+            for c in chunk_graph.results:
+                result_chunk_to_subtask[task_id][c.key] = subtask.subtask_id
+
+            visited = set()
+            subtask_dict = dict()
+            subtask_dict["pre_subtasks"] = list()
+            subtask_dict["ops"] = list()
+            subtask_dict["stage_id"] = stage_id
+
+            for node in chunk_graph.iter_nodes():
+                op = node.op
+                if isinstance(op, (Fetch, FetchShuffle)):
+                    continue
+                if op.key in visited:
+                    continue
+
+                subtask_dict["ops"].append(op.key)
+                op_dict = dict()
+                op_name = type(op).__name__
+                op_dict["op_name"] = op_name
+                if op.stage is not None:
+                    op_dict["stage"] = op.stage.name
+                else:
+                    op_dict["stage"] = None
+                op_dict["subtask_id"] = subtask.subtask_id
+                op_dict["stage_id"] = stage_id
+                op_dict["predecessors"] = list()
+                op_dict["inputs"] = dict()
+
+                for input_chunk in op.inputs or []:
+                    if input_chunk.key not in visited:
+                        op_dict["predecessors"].append(input_chunk.key)
+                        if (
+                            isinstance(input_chunk.op, (Fetch, FetchShuffle))
+                            and input_chunk.key in result_chunk_to_subtask[task_id]
+                        ):
+                            subtask_dict["pre_subtasks"].append(result_chunk_to_subtask[task_id][input_chunk.key])
+
+                        chunk_dict = dict()
+                        if hasattr(input_chunk, "dtypes") and input_chunk.dtypes is not None:
+                            unique_dtypes = list(set(input_chunk.dtypes.map(str)))
+                            chunk_dict["dtypes"] = unique_dtypes
+                        elif hasattr(input_chunk, "dtype") and input_chunk.dtype is not None:
+                            chunk_dict["dtype"] = str(input_chunk.dtype)
+
+                        op_dict["inputs"][input_chunk.key] = chunk_dict
+
+                op_save_path = os.path.join(save_path, f"{stage_id[:trunc_key]}_operand.yaml")
+                cls.yaml_save({op.key: op_dict}, op_save_path)
+                visited.add(op.key)
+
+            subtask_save_path = os.path.join(save_path, f"{stage_id[:trunc_key]}_subtask.yaml")
+            cls.yaml_save({subtask.subtask_id: subtask_dict}, subtask_save_path)
+
+    @classmethod
+    @collect_verify
+    def collect_last_node_info(cls, subtask_graphs: List[SubtaskGraph], session_id: str, task_id: str):
+        last_op_keys = []
+        last_subtask_keys = []
+        subtask_graph = subtask_graphs[-1]
+        for subtask in subtask_graph.topological_iter():
+            if len(subtask_graph._successors[subtask]) == 0:
+                last_subtask_keys.append(subtask.subtask_id)
+                for res in subtask.chunk_graph.results:
+                    last_op_keys.append(res.op.key)
+
+        save_path = os.path.join(yaml_root_dir, session_id, task_id, "last_nodes.yaml")
+        cls.yaml_save({"op": last_op_keys,
+                       "subtask": last_subtask_keys},
+                      save_path)
+
+    @classmethod
+    @collect_verify
+    def collect_tileable_structure(cls,
+                                   tileable_to_subtasks: Dict[TileableType, List[Subtask]],
+                                   session_id: str,
+                                   task_id: str):
+        tileable_dict = dict()
+        for tileable, subtasks in tileable_to_subtasks.items():
+            tileable_dict[tileable.key] = [x.subtask_id for x in subtasks]
+        save_path = os.path.join(yaml_root_dir, session_id, task_id, "tileable.yaml")
+        cls.yaml_save(tileable_dict, save_path)
+
+    @classmethod
+    @collect_verify
+    def collect_runtime_subtask_info(
+            cls,
+            session_id: str,
+            task_id: str,
+            subtask_id: str,
+            band: tuple,
+            slot_id: int,
+            stored_keys: list[str],
+            store_sizes: Dict[str, int],
+            memory_sizes: Dict[str, int],
+            cost_times: Dict[str, Dict],
+    ):
+        subtask_dict = dict()
+        subtask_dict["band"] = band
+        subtask_dict["slot_id"] = slot_id
+        subtask_dict.update(cost_times)
+        result_chunks_dict = dict()
+        stored_keys = list(set(stored_keys))
+
+        for key in stored_keys:
+            chunk_dict = dict()
+            chunk_dict["memory_size"] = memory_sizes[key]
+            chunk_dict["store_size"] = store_sizes[key]
+            if isinstance(key, tuple):
+                key = key[0]
+            result_chunks_dict[key] = chunk_dict
+
+        subtask_dict["result_chunks"] = result_chunks_dict
+        save_path = os.path.join(yaml_root_dir, session_id, task_id, f"subtask_runtime.yaml")
+        cls.yaml_save({subtask_id: subtask_dict}, save_path)
+
+    @classmethod
+    @collect_verify
+    def collect_runtime_operand_info(cls,
+                                     session_id: str,
+                                     task_id: str,
+                                     subtask_id: str,
+                                     execute_time: float,
+                                     chunk: ChunkType,
+                                     processor_context):
+        op = chunk.op
+        if isinstance(op, (Fetch, FetchShuffle)):
+            return
+        op_info = dict()
+        op_key = op.key
+        op_info["op_name"] = type(op).__name__
+        op_info["subtask_id"] = subtask_id
+        op_info["execute_time"] = execute_time
+        if chunk.key in processor_context:
+            op_info["memory_use"] = (calc_data_size(processor_context[chunk.key]))
+            op_info["result_count"] = 1
+        else:
+            cnt = 0
+            total_size = 0
+            for k, v in processor_context.items():
+                if isinstance(k, tuple) and k[0] == chunk.key:
+                    cnt += 1
+                    total_size += calc_data_size(v)
+            op_info["memory_use"] = total_size
+            op_info["result_count"] = cnt
+        save_path = os.path.join(yaml_root_dir, session_id, task_id, f"operand_runtime.yaml")
+        cls.yaml_save({op_key: op_info}, save_path)
+
+    @classmethod
+    @collect_verify
+    def collect_fetch_time(cls,
+                           session_id: str,
+                           task_id: str,
+                           subtask_id: str,
+                           fetch_start: float,
+                           fetch_end: float):
+        save_path = os.path.join(yaml_root_dir, session_id, task_id, "fetch_time.yaml")
+        cls.yaml_save({subtask_id: {"fetch_time": {"start_time": fetch_start,
+                                                   "end_time": fetch_end}}}, save_path)
+
+    @classmethod
+    def yaml_save(cls, obj, save_path):
+        if os.path.isfile(save_path):
+            mode = "a"
+        else:
+            mode = "w"
+        with open(save_path, mode) as f:
+            yaml.dump(obj, f)
+
