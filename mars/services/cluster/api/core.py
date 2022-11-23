@@ -188,3 +188,19 @@ class AbstractClusterAPI:
         -------
 
         """
+
+    @abstractmethod
+    async def save_yaml(self, obj: Dict, save_path: str, address: str) -> None:
+        """
+        Save obj using yaml format
+
+        Parameters
+        ----------
+        obj
+        save_path
+        address
+
+        Returns
+        -------
+
+        """

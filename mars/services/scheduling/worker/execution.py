@@ -382,9 +382,12 @@ class SubtaskExecutionActor(mo.StatelessActor):
                 prepare_data_task, timeout=self._data_prepare_timeout
             )
             fetch_end = time.time()
-            YamlDumper.collect_fetch_time(subtask,
-                                          fetch_start,
-                                          fetch_end)
+            collect_info = subtask.extra_config.get("collect_info", False) \
+                if subtask.extra_config is not None else False
+            yaml_dumper = YamlDumper(self.address, collect_info)
+            await yaml_dumper.collect_fetch_time(subtask,
+                                                 fetch_start,
+                                                 fetch_end)
 
             input_sizes = await self._collect_input_sizes(
                 subtask, subtask_info.supervisor_address, band_name

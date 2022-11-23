@@ -318,6 +318,7 @@ class TaskProcessorActor(mo.Actor, _TaskInfoProcessorMixin):
             task,
             task_preprocessor,
             task_executor,
+            self.address
         )
         self._task_id_to_processor[task.task_id] = processor
 

@@ -45,7 +45,6 @@ from ....subtask import MockSubtaskAPI
 from ....mutable import MockMutableAPI
 from ...core import TaskStatus, TaskResult
 from ...execution.api import Fetcher, ExecutionConfig
-from ..graph_visualizer import yaml_root_dir
 from ..manager import TaskConfigurationActor, TaskManagerActor
 
 
@@ -711,7 +710,7 @@ async def test_collect_info(actor_pool):
         extra_config={"collect_info": True},
     )
     await manager.wait_task(task_id)
-
+    yaml_root_dir = os.path.join(tempfile.tempdir, "mars_temp_yaml")
     save_dir = os.path.join(yaml_root_dir, session_id, task_id)
     assert os.path.exists(save_dir)
     assert os.path.isfile(os.path.join(save_dir, "tileable.yaml"))
