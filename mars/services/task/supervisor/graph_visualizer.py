@@ -273,7 +273,10 @@ class YamlDumper:
                                          tileable_to_subtasks: Dict[TileableType, List[Subtask]]):
         tileable_dict = dict()
         for tileable, subtasks in tileable_to_subtasks.items():
-            tileable_dict[tileable.key] = [x.subtask_id for x in subtasks]
+            tileable_dict[tileable.key] = dict()
+            tileable_dict[tileable.key]["subtasks"] = [x.subtask_id for x in subtasks]
+            tileable_dict[tileable.key]["name"] = type(tileable.op).__name__
+            tileable_dict[tileable.key]["pre_tileables"] = [x.key for x in tileable.op.inputs]
         save_path = os.path.join(task.session_id, task.task_id, "tileable.yaml")
         await self.save_yaml(tileable_dict, save_path)
 
