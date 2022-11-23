@@ -282,7 +282,7 @@ class YamlDumper:
                                            subtask: Subtask,
                                            band: tuple,
                                            slot_id: int,
-                                           stored_keys: list[str],
+                                           stored_keys: List[str],
                                            store_sizes: Dict[str, int],
                                            memory_sizes: Dict[str, int],
                                            cost_times: Dict[str, Dict],
