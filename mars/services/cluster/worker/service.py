@@ -18,7 +18,6 @@ from ..procinfo import ProcessInfoManagerActor
 from ..uploader import NodeInfoUploaderActor
 from .locator import WorkerSupervisorLocatorActor
 from ..file_logger import FileLoggerActor
-from ..yaml_dumper import YamlDumperActor
 
 
 class ClusterWorkerService(AbstractService):
@@ -72,9 +71,6 @@ class ClusterWorkerService(AbstractService):
         await mo.create_actor(
             FileLoggerActor, uid=FileLoggerActor.default_uid(), address=address
         )
-        await mo.create_actor(
-            YamlDumperActor, uid=YamlDumperActor.default_uid(), address=address
-        )
 
     async def stop(self):
         address = self._address
@@ -91,7 +87,4 @@ class ClusterWorkerService(AbstractService):
         )
         await mo.destroy_actor(
             mo.create_actor_ref(uid=FileLoggerActor.default_uid(), address=address)
-        )
-        await mo.destroy_actor(
-            mo.create_actor_ref(uid=YamlDumperActor.default_uid(), address=address)
         )

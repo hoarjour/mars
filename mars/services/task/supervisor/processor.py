@@ -32,7 +32,7 @@ from ....utils import Timer
 from ...subtask import SubtaskResult, Subtask
 from ..core import Task, TaskResult, TaskStatus, new_task_id
 from ..execution.api import TaskExecutor, ExecutionChunkResult
-from .graph_visualizer import YamlDumper
+from ..task_info_collector import TaskInfoCollector
 from .preprocessor import TaskPreprocessor
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class TaskProcessor:
             self._dump_subtask_graph = True
         if task.extra_config and task.extra_config.get("collect_info"):
             self._collect_info = True
-        self._yaml_dumper = YamlDumper(address, self._collect_info)
+        self._task_info_collector = TaskInfoCollector(address, self._collect_info)
 
         self.result = TaskResult(
             task_id=task.task_id,
@@ -231,7 +231,7 @@ class TaskProcessor:
             if self._dump_subtask_graph or self._collect_info:
                 self._subtask_graphs.append(subtask_graph)
         stage_profiler.set(f"gen_subtask_graph({len(subtask_graph)})", timer.duration)
-        await self._yaml_dumper.collect_subtask_operand_structure(self._task, subtask_graph, stage_id)
+        await self._task_info_collector.collect_subtask_operand_structure(self._task, subtask_graph, stage_id)
 
         logger.info(
             "Time consuming to gen a subtask graph is %ss with session id %s, task id %s, stage id %s",
@@ -379,8 +379,8 @@ class TaskProcessor:
             async with self._executor:
                 async for stage_args in self._iter_stage_chunk_graph():
                     await self._process_stage_chunk_graph(*stage_args)
-            await self._yaml_dumper.collect_last_node_info(self._task, self._subtask_graphs)
-            await self._yaml_dumper.collect_tileable_structure(self._task, self.get_tileable_to_subtasks())
+            await self._task_info_collector.collect_last_node_info(self._task, self._subtask_graphs)
+            await self._task_info_collector.collect_tileable_structure(self._task, self.get_tileable_to_subtasks())
         except Exception as ex:
             self.result.error = ex
             self.result.traceback = ex.__traceback__

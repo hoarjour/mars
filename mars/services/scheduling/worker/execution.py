@@ -36,7 +36,7 @@ from ...cluster import ClusterAPI
 from ...meta import MetaAPI
 from ...storage import StorageAPI
 from ...subtask import Subtask, SubtaskAPI, SubtaskResult, SubtaskStatus
-from ...task.supervisor.graph_visualizer import YamlDumper
+from ...task.task_info_collector import TaskInfoCollector
 from .workerslot import BandSlotManagerActor
 from .quota import QuotaActor
 
@@ -384,10 +384,10 @@ class SubtaskExecutionActor(mo.StatelessActor):
             fetch_end = time.time()
             collect_info = subtask.extra_config.get("collect_info", False) \
                 if subtask.extra_config is not None else False
-            yaml_dumper = YamlDumper(self.address, collect_info)
-            await yaml_dumper.collect_fetch_time(subtask,
-                                                 fetch_start,
-                                                 fetch_end)
+            task_info_collector = TaskInfoCollector(self.address, collect_info)
+            await task_info_collector.collect_fetch_time(subtask,
+                                                         fetch_start,
+                                                         fetch_end)
 
             input_sizes = await self._collect_input_sizes(
                 subtask, subtask_info.supervisor_address, band_name

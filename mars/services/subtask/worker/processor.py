@@ -36,7 +36,7 @@ from ...meta.api import MetaAPI, WorkerMetaAPI
 from ...session import SessionAPI
 from ...storage import StorageAPI
 from ...task import TaskAPI, task_options
-from ...task.supervisor.graph_visualizer import YamlDumper
+from ...task.task_info_collector import TaskInfoCollector
 from ..core import Subtask, SubtaskStatus, SubtaskResult
 from ..utils import iter_input_data_keys, iter_output_data, get_mapper_data_keys
 
@@ -120,7 +120,7 @@ class SubtaskProcessor:
         self._meta_api = meta_api
         self._worker_meta_api = worker_meta_api
         collect_info = subtask.extra_config.get("collect_info", False) if subtask.extra_config is not None else False
-        self._yaml_dumper = YamlDumper(self._band[0], collect_info)
+        self._task_info_collector = TaskInfoCollector(self._band[0], collect_info)
 
         # add metrics
         self._subtask_execution_time = Metrics.gauge(
@@ -263,10 +263,10 @@ class SubtaskProcessor:
                         )
                         self.result.status = SubtaskStatus.cancelled
                         raise
-                await self._yaml_dumper.collect_runtime_operand_info(self.subtask,
-                                                                     timer.duration,
-                                                                     chunk,
-                                                                     self._processor_context)
+                await self._task_info_collector.collect_runtime_operand_info(self.subtask,
+                                                                             timer.duration,
+                                                                             chunk,
+                                                                             self._processor_context)
             self.set_op_progress(chunk.op.key, 1.0)
 
             for inp in chunk_graph.iter_predecessors(chunk):
@@ -512,13 +512,13 @@ class SubtaskProcessor:
                 update_meta_chunks,
             )
             cost_times["store_meta_time"]["end_time"] = time.time()
-            await self._yaml_dumper.collect_runtime_subtask_info(self.subtask,
-                                                                 self._band,
-                                                                 slot_id,
-                                                                 stored_keys,
-                                                                 store_sizes,
-                                                                 memory_sizes,
-                                                                 cost_times)
+            await self._task_info_collector.collect_runtime_subtask_info(self.subtask,
+                                                                         self._band,
+                                                                         slot_id,
+                                                                         stored_keys,
+                                                                         store_sizes,
+                                                                         memory_sizes,
+                                                                         cost_times)
 
         except asyncio.CancelledError:
             self.result.status = SubtaskStatus.cancelled

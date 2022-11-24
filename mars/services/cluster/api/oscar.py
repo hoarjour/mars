@@ -320,17 +320,6 @@ class ClusterAPI(AbstractClusterAPI):
         ref = await self._get_log_ref(address)
         return await ref.fetch_logs(size, offset)
 
-    async def _get_yaml_dumper_ref(self, address: str):
-        from ..yaml_dumper import YamlDumperActor
-
-        return await mo.actor_ref(
-            YamlDumperActor.default_uid(), address=address or self._address
-        )
-
-    async def save_yaml(self, obj, save_path, address: str = None):
-        ref = await self._get_yaml_dumper_ref(address)
-        await ref.save_yaml(obj, save_path)
-
 
 class MockClusterAPI(ClusterAPI):
     @classmethod
@@ -341,7 +330,6 @@ class MockClusterAPI(ClusterAPI):
         from ..supervisor.node_allocator import NodeAllocatorActor
         from ..supervisor.node_info import NodeInfoCollectorActor
         from ..uploader import NodeInfoUploaderActor
-        from ..yaml_dumper import YamlDumperActor
 
         create_actor_coros = [
             mo.create_actor(
@@ -380,9 +368,6 @@ class MockClusterAPI(ClusterAPI):
             mo.create_actor(
                 FileLoggerActor, uid=FileLoggerActor.default_uid(), address=address
             ),
-            mo.create_actor(
-                YamlDumperActor, uid=YamlDumperActor.default_uid(), address=address
-            )
         ]
         dones, _ = await asyncio.wait(
             [asyncio.ensure_future(coro) for coro in create_actor_coros]
@@ -404,7 +389,6 @@ class MockClusterAPI(ClusterAPI):
         from ..supervisor.locator import SupervisorPeerLocatorActor
         from ..uploader import NodeInfoUploaderActor
         from ..supervisor.node_info import NodeInfoCollectorActor
-        from ..yaml_dumper import YamlDumperActor
 
         await asyncio.gather(
             mo.destroy_actor(
@@ -424,8 +408,5 @@ class MockClusterAPI(ClusterAPI):
             ),
             mo.destroy_actor(
                 mo.create_actor_ref(uid=FileLoggerActor.default_uid(), address=address)
-            ),
-            mo.destroy_actor(
-                mo.create_actor_ref(uid=YamlDumperActor.default_uid(), address=address)
             )
         )

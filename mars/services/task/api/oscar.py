@@ -25,14 +25,15 @@ from .core import AbstractTaskAPI
 
 class TaskAPI(AbstractTaskAPI):
     def __init__(
-        self, session_id: str, task_manager_ref: mo.ActorRefType[TaskManagerActor]
+        self, session_id: str, task_manager_ref: mo.ActorRefType[TaskManagerActor], address: str = None
     ):
         self._session_id = session_id
         self._task_manager_ref = task_manager_ref
+        self._address = address
 
     @classmethod
     @alru_cache(cache_exceptions=False)
-    async def create(cls, session_id: str, address: str) -> "TaskAPI":
+    async def create(cls, session_id: str, address: str, collect_task_info: bool = False) -> "TaskAPI":
         """
         Create Task API.
 
@@ -42,16 +43,20 @@ class TaskAPI(AbstractTaskAPI):
             Session ID
         address : str
             Supervisor address.
+        collect_task_info: bool
+            Collect task info or not
 
         Returns
         -------
         task_api
             Task API.
         """
-        task_manager_ref = await mo.actor_ref(
-            address, TaskManagerActor.gen_uid(session_id)
-        )
-        return TaskAPI(session_id, task_manager_ref)
+        task_manager_ref = None
+        if not collect_task_info:
+            task_manager_ref = await mo.actor_ref(
+                address, TaskManagerActor.gen_uid(session_id)
+            )
+        return TaskAPI(session_id, task_manager_ref, address)
 
     async def get_task_results(self, progress: bool = False) -> List[TaskResult]:
         return await self._task_manager_ref.get_task_results(progress)
@@ -106,3 +111,19 @@ class TaskAPI(AbstractTaskAPI):
 
     async def remove_tileables(self, tileable_keys: List[str]):
         return await self._task_manager_ref.remove_tileables(tileable_keys)
+
+    async def _get_task_info_collector_ref(self):
+        from ..task_info_collector import TaskInfoCollectorActor
+
+        return await mo.actor_ref(
+            TaskInfoCollectorActor.default_uid(), address=self._address
+        )
+
+    async def save_task_info(self, obj, save_path):
+        try:
+            ref = await self._get_task_info_collector_ref()
+            await ref.save_task_info(obj, save_path)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
