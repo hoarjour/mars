@@ -46,8 +46,8 @@ from ....subtask import MockSubtaskAPI
 from ....mutable import MockMutableAPI
 from ...core import TaskStatus, TaskResult
 from ...execution.api import Fetcher, ExecutionConfig
-from ..manager import TaskConfigurationActor, TaskManagerActor
 from ...task_info_collector import TaskInfoCollectorActor
+from ..manager import TaskConfigurationActor, TaskManagerActor
 
 
 @pytest.fixture
@@ -715,7 +715,7 @@ async def test_collect_task_info(actor_pool):
     task_id = await manager.submit_tileable_graph(
         graph,
         fuse_enabled=True,
-        extra_config={"collect_info": True},
+        extra_config={"collect_task_info": True},
     )
     await manager.wait_task(task_id)
     yaml_root_dir = os.path.join(tempfile.tempdir, "mars_temp_yaml")

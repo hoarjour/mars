@@ -119,8 +119,8 @@ class SubtaskProcessor:
         self._storage_api = storage_api
         self._meta_api = meta_api
         self._worker_meta_api = worker_meta_api
-        collect_info = subtask.extra_config.get("collect_info", False) if subtask.extra_config is not None else False
-        self._task_info_collector = TaskInfoCollector(self._band[0], collect_info)
+        collect_task_info = subtask.extra_config and subtask.extra_config.get("collect_task_info", False)
+        self._task_info_collector = TaskInfoCollector(self._band[0], collect_task_info)
 
         # add metrics
         self._subtask_execution_time = Metrics.gauge(
@@ -244,7 +244,7 @@ class SubtaskProcessor:
                             chunk,
                             self.subtask.subtask_id,
                         )
-                    except asyncio.CancelledError:
+                    except asyncio.CancelledError:  # pragma: no cover
                         logger.debug(
                             "Receive cancel instruction for operand: %s,"
                             "chunk: %s, subtask id: %s",
@@ -453,7 +453,7 @@ class SubtaskProcessor:
         self.is_done.set()
 
     async def run(self, slot_id: int):
-        cost_times = dict()
+        cost_times = defaultdict(dict)
         self.result.status = SubtaskStatus.running
         input_keys = None
         unpinned = False
@@ -474,25 +474,21 @@ class SubtaskProcessor:
             }
 
             # load inputs data
-            cost_times["load_data_time"] = dict()
             cost_times["load_data_time"]["start_time"] = time.time()
             input_keys = await self._load_input_data()
             cost_times["load_data_time"]["end_time"] = time.time()
             try:
                 # execute chunk graph
-                cost_times["execute_time"] = dict()
                 cost_times["execute_time"]["start_time"] = time.time()
                 await self._execute_graph(chunk_graph)
                 cost_times["execute_time"]["end_time"] = time.time()
             finally:
                 # unpin inputs data
                 unpinned = True
-                cost_times["unpin_time"] = dict()
                 cost_times["unpin_time"]["start_time"] = time.time()
                 await self._unpin_data(input_keys)
                 cost_times["unpin_time"]["end_time"] = time.time()
             # store results data
-            cost_times["store_result_time"] = dict()
             cost_times["store_result_time"]["start_time"] = time.time()
             (
                 stored_keys,
@@ -502,7 +498,6 @@ class SubtaskProcessor:
             ) = await self._store_data(chunk_graph)
             cost_times["store_result_time"]["end_time"] = time.time()
             # store meta
-            cost_times["store_meta_time"] = dict()
             cost_times["store_meta_time"]["start_time"] = time.time()
             await self._store_meta(
                 chunk_graph,

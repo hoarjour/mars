@@ -16,7 +16,7 @@ from ...utils import calc_data_size
 def collect_on_demand(f):
     @functools.wraps(f)
     async def wrapper(*args, **kwargs):
-        if hasattr(args[0], "collect_info") and args[0].collect_info:
+        if hasattr(args[0], "collect_task_info") and args[0].collect_task_info:
             await f(*args, **kwargs)
         else:
             pass
@@ -26,8 +26,8 @@ def collect_on_demand(f):
 
 class TaskInfoCollector:
 
-    def __init__(self, address, collect_info=False):
-        self.collect_info = collect_info
+    def __init__(self, address: str, collect_task_info: bool = False):
+        self.collect_task_info = collect_task_info
         self.result_chunk_to_subtask = dict()
         self._address = address
         self._task_api = None
@@ -58,16 +58,16 @@ class TaskInfoCollector:
 
             for node in chunk_graph.iter_nodes():
                 op = node.op
-                if isinstance(op, (Fetch, FetchShuffle)):
+                if isinstance(op, (Fetch, FetchShuffle)):  # pragma: no cover
                     continue
-                if op.key in visited:
+                if op.key in visited:  # pragma: no cover
                     continue
 
                 subtask_dict["ops"].append(op.key)
                 op_dict = dict()
                 op_name = type(op).__name__
                 op_dict["op_name"] = op_name
-                if op.stage is not None:
+                if op.stage is not None:  # pragma: no cover
                     op_dict["stage"] = op.stage.name
                 else:
                     op_dict["stage"] = None
@@ -82,11 +82,11 @@ class TaskInfoCollector:
                         if (
                             isinstance(input_chunk.op, (Fetch, FetchShuffle))
                             and input_chunk.key in self.result_chunk_to_subtask[task_id]
-                        ):
+                        ):  # pragma: no cover
                             subtask_dict["pre_subtasks"].append(self.result_chunk_to_subtask[task_id][input_chunk.key])
 
                         chunk_dict = dict()
-                        if hasattr(input_chunk, "dtypes") and input_chunk.dtypes is not None:
+                        if hasattr(input_chunk, "dtypes") and input_chunk.dtypes is not None:  # pragma: no cover
                             unique_dtypes = list(set(input_chunk.dtypes.map(str)))
                             chunk_dict["dtypes"] = unique_dtypes
                         elif hasattr(input_chunk, "dtype") and input_chunk.dtype is not None:
@@ -140,7 +140,7 @@ class TaskInfoCollector:
                                            store_sizes: Dict[str, int],
                                            memory_sizes: Dict[str, int],
                                            cost_times: Dict[str, Dict],
-                                           ):
+                                           ):  # pragma: no cover
         subtask_dict = dict()
         subtask_dict["band"] = band
         subtask_dict["slot_id"] = slot_id
@@ -165,7 +165,7 @@ class TaskInfoCollector:
                                            subtask: Subtask,
                                            execute_time: float,
                                            chunk: ChunkType,
-                                           processor_context):
+                                           processor_context):  # pragma: no cover
         op = chunk.op
         if isinstance(op, (Fetch, FetchShuffle)):
             return
@@ -200,12 +200,12 @@ class TaskInfoCollector:
                                   save_path,
                                   subtask.session_id)
 
-    async def save_task_info(self, obj, save_path, session_id):
+    async def save_task_info(self, task_info: Dict, path: str, session_id: str):
         from .api.oscar import TaskAPI
 
         if self._task_api is None:
-            self._task_api = await TaskAPI.create(session_id, self._address, collect_task_info=True)
-        await self._task_api.save_task_info(obj, save_path)
+            self._task_api = await TaskAPI.create(session_id, self._address)
+        await self._task_api.save_task_info(task_info, path)
 
 
 class TaskInfoCollectorActor(mo.Actor):
@@ -213,8 +213,8 @@ class TaskInfoCollectorActor(mo.Actor):
     def __init__(self):
         self.yaml_root_dir = os.path.join(tempfile.tempdir, "mars_temp_yaml")
 
-    async def save_task_info(self, obj: Dict, save_path: str):
-        abs_save_path = os.path.join(self.yaml_root_dir, save_path)
+    async def save_task_info(self, task_info: Dict, path: str):
+        abs_save_path = os.path.join(self.yaml_root_dir, path)
         abs_save_dir, _ = os.path.split(abs_save_path)
         if not os.path.exists(abs_save_dir):
             os.makedirs(abs_save_dir)
@@ -224,4 +224,4 @@ class TaskInfoCollectorActor(mo.Actor):
         else:
             mode = "w"
         with open(abs_save_path, mode) as f:
-            await asyncio.to_thread(yaml.dump, obj, f)
+            await asyncio.to_thread(yaml.dump, task_info, f)

@@ -146,16 +146,7 @@ class AbstractTaskAPI(ABC):
             The last idle time if the task manager is idle else None.
         """
 
-    async def save_task_info(self, obj: Dict, save_path: str) -> None:
+    async def save_task_info(self, task_info: Dict, path: str):
         """
-        Save task information using yaml format
-
-        Parameters
-        ----------
-        obj
-        save_path
-
-        Returns
-        -------
-
+        Save task information using yaml format.
         """

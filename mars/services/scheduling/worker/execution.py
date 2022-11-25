@@ -382,9 +382,8 @@ class SubtaskExecutionActor(mo.StatelessActor):
                 prepare_data_task, timeout=self._data_prepare_timeout
             )
             fetch_end = time.time()
-            collect_info = subtask.extra_config.get("collect_info", False) \
-                if subtask.extra_config is not None else False
-            task_info_collector = TaskInfoCollector(self.address, collect_info)
+            collect_task_info = subtask.extra_config and subtask.extra_config.get("collect_task_info", False)
+            task_info_collector = TaskInfoCollector(self.address, collect_task_info)
             await task_info_collector.collect_fetch_time(subtask,
                                                          fetch_start,
                                                          fetch_end)
