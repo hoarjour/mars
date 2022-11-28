@@ -125,7 +125,11 @@ class TaskProcessor:
         return self._preprocessor.get_tiled(tileable)
 
     def get_subtasks(self, chunks: List[ChunkType]) -> List[Subtask]:
-        return [self._chunk_to_subtasks[chunk] for chunk in chunks]
+        subtasks = []
+        for chunk in chunks:
+            if chunk in self._chunk_to_subtasks:
+                subtasks.append(self._chunk_to_subtasks[chunk])
+        return subtasks
 
     def get_tileable_to_subtasks(self) -> Dict[TileableType, List[Subtask]]:
         tile_context = self.tile_context
