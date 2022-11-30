@@ -50,6 +50,18 @@ from ...task_info_collector import TaskInfoCollectorActor
 from ..manager import TaskConfigurationActor, TaskManagerActor
 
 
+class YamlFileManager:
+
+    def __init__(self, yaml_dir):
+        self.yaml_dir = yaml_dir
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, *args):
+        shutil.rmtree(self.yaml_dir, ignore_errors=True)
+
+
 @pytest.fixture
 async def actor_pool():
     backend = MARS_CI_BACKEND
@@ -718,43 +730,42 @@ async def test_collect_task_info(actor_pool):
         extra_config={"collect_task_info": True},
     )
     await manager.wait_task(task_id)
-    yaml_root_dir = os.path.join(tempfile.tempdir, "mars_temp_yaml")
+    yaml_root_dir = os.path.join(tempfile.tempdir, "mars_task_infos")
     save_dir = os.path.join(yaml_root_dir, session_id, task_id)
-    assert os.path.exists(save_dir)
-    assert os.path.isfile(os.path.join(save_dir, "tileable.yaml"))
-    assert os.path.isfile(os.path.join(save_dir, "operand_runtime.yaml"))
-    assert os.path.isfile(os.path.join(save_dir, "subtask_runtime.yaml"))
-    assert os.path.isfile(os.path.join(save_dir, "last_nodes.yaml"))
-    assert os.path.isfile(os.path.join(save_dir, "fetch_time.yaml"))
+    with YamlFileManager(os.path.dirname(save_dir)):
+        assert os.path.exists(save_dir)
+        assert os.path.isfile(os.path.join(save_dir, "tileable.yaml"))
+        assert os.path.isfile(os.path.join(save_dir, "operand_runtime.yaml"))
+        assert os.path.isfile(os.path.join(save_dir, "subtask_runtime.yaml"))
+        assert os.path.isfile(os.path.join(save_dir, "last_nodes.yaml"))
+        assert os.path.isfile(os.path.join(save_dir, "fetch_time.yaml"))
 
-    with open(os.path.join(save_dir, "operand_runtime.yaml"), "r") as f:
-        operand_runtime = yaml.full_load(f)
-        v = list(operand_runtime.values())[0]
-        assert "execute_time" in v
-        assert "memory_use" in v
-        assert "op_name" in v
-        assert "result_count" in v
-        assert "subtask_id" in v
+        with open(os.path.join(save_dir, "operand_runtime.yaml"), "r") as f:
+            operand_runtime = yaml.full_load(f)
+            v = list(operand_runtime.values())[0]
+            assert "execute_time" in v
+            assert "memory_use" in v
+            assert "op_name" in v
+            assert "result_count" in v
+            assert "subtask_id" in v
 
-    with open(os.path.join(save_dir, "subtask_runtime.yaml"), "r") as f:
-        subtask_runtime = yaml.full_load(f)
-        v = list(subtask_runtime.values())[0]
-        assert "band" in v
-        assert "slot_id" in v
-        assert "execute_time" in v
-        assert "load_data_time" in v
-        assert "store_meta_time" in v
-        assert "store_result_time" in v
-        assert "unpin_time" in v
+        with open(os.path.join(save_dir, "subtask_runtime.yaml"), "r") as f:
+            subtask_runtime = yaml.full_load(f)
+            v = list(subtask_runtime.values())[0]
+            assert "band" in v
+            assert "slot_id" in v
+            assert "execute_time" in v
+            assert "load_data_time" in v
+            assert "store_meta_time" in v
+            assert "store_result_time" in v
+            assert "unpin_time" in v
 
-    with open(os.path.join(save_dir, "last_nodes.yaml"), "r") as f:
-        last_nodes = yaml.full_load(f)
-        assert "op" in last_nodes
-        assert "subtask" in last_nodes
+        with open(os.path.join(save_dir, "last_nodes.yaml"), "r") as f:
+            last_nodes = yaml.full_load(f)
+            assert "op" in last_nodes
+            assert "subtask" in last_nodes
 
-    with open(os.path.join(save_dir, "fetch_time.yaml"), "r") as f:
-        fetch_time = yaml.full_load(f)
-        v = list(fetch_time.values())[0]
-        assert "fetch_time" in v
-
-    shutil.rmtree(os.path.join(yaml_root_dir, session_id), ignore_errors=True)
+        with open(os.path.join(save_dir, "fetch_time.yaml"), "r") as f:
+            fetch_time = yaml.full_load(f)
+            v = list(fetch_time.values())[0]
+            assert "fetch_time" in v

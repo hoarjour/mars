@@ -27,47 +27,49 @@ from .core import AbstractTaskAPI
 class TaskAPI(AbstractTaskAPI):
     def __init__(
             self,
-            session_id: str,
-            address: str
+            task_info_collector_ref: mo.ActorRefType[TaskInfoCollectorActor],
+            task_manager_ref: mo.ActorRefType[TaskManagerActor]
     ):
-        self._session_id = session_id
-        self._address = address
+        self._task_info_collector_ref = task_info_collector_ref
+        self._task_manager_ref = task_manager_ref
 
     @classmethod
     @alru_cache(cache_exceptions=False)
-    async def create(cls, session_id: str, address: str) -> "TaskAPI":
+    async def create(cls, session_id: str, supervisor_address: str = None, local_address: str = None) -> "TaskAPI":
         """
         Create Task API.
 
         Parameters
         ----------
         session_id : str
-            Session ID
-        address : str
+            Session ID.
+        supervisor_address : str
             Supervisor address.
+        local_address : str
+            Local address.
 
         Returns
         -------
         task_api
             Task API.
         """
-        return TaskAPI(session_id, address)
+        try:
+            task_manager_ref = await mo.actor_ref(
+                supervisor_address, TaskManagerActor.gen_uid(session_id)
+            )
+        except (mo.ActorNotExist, ValueError):
+            task_manager_ref = None
+        try:
+            task_info_collector_ref = await mo.actor_ref(
+                local_address, TaskInfoCollectorActor.default_uid()
+            )
+        except (mo.ActorNotExist, ValueError):
+            task_info_collector_ref = None
 
-    @alru_cache(cache_exceptions=False)
-    async def _get_task_manager_ref(self):
-        return await mo.actor_ref(
-            self._address, TaskManagerActor.gen_uid(self._session_id)
-        )
-
-    @alru_cache(cache_exceptions=False)
-    async def _get_task_info_collector_ref(self):
-        return await mo.actor_ref(
-            TaskInfoCollectorActor.default_uid(), address=self._address
-        )
+        return TaskAPI(task_info_collector_ref, task_manager_ref)
 
     async def get_task_results(self, progress: bool = False) -> List[TaskResult]:
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_task_results(progress)
+        return await self._task_manager_ref.get_task_results(progress)
 
     async def submit_tileable_graph(
         self,
@@ -76,61 +78,48 @@ class TaskAPI(AbstractTaskAPI):
         extra_config: dict = None,
     ) -> str:
         try:
-            task_manager_ref = await self._get_task_manager_ref()
-            return await task_manager_ref.submit_tileable_graph(
+            return await self._task_manager_ref.submit_tileable_graph(
                 graph, fuse_enabled=fuse_enabled, extra_config=extra_config
             )
         except mo.ActorNotExist:
             raise RuntimeError("Session closed already")
 
     async def get_tileable_graph_as_json(self, task_id: str):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_tileable_graph_dict_by_task_id(task_id)
+        return await self._task_manager_ref.get_tileable_graph_dict_by_task_id(task_id)
 
     async def get_tileable_details(self, task_id: str):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_tileable_details(task_id)
+        return await self._task_manager_ref.get_tileable_details(task_id)
 
     async def get_tileable_subtasks(
         self, task_id: str, tileable_id: str, with_input_output: bool
     ):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_tileable_subtasks(
+        return await self._task_manager_ref.get_tileable_subtasks(
             task_id, tileable_id, with_input_output
         )
 
     async def wait_task(self, task_id: str, timeout: float = None):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.wait_task(task_id, timeout=timeout)
+        return await self._task_manager_ref.wait_task(task_id, timeout=timeout)
 
     async def get_task_result(self, task_id: str) -> TaskResult:
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_task_result(task_id)
+        return await self._task_manager_ref.get_task_result(task_id)
 
     async def get_task_progress(self, task_id: str) -> float:
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_task_progress(task_id)
+        return await self._task_manager_ref.get_task_progress(task_id)
 
     async def cancel_task(self, task_id: str):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.cancel_task(task_id)
+        return await self._task_manager_ref.cancel_task(task_id)
 
     async def get_fetch_tileables(self, task_id: str) -> List[Tileable]:
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_task_result_tileables(task_id)
+        return await self._task_manager_ref.get_task_result_tileables(task_id)
 
     async def set_subtask_result(self, subtask_result: SubtaskResult):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.set_subtask_result.tell(subtask_result)
+        return await self._task_manager_ref.set_subtask_result.tell(subtask_result)
 
     async def get_last_idle_time(self) -> Union[float, None]:
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.get_last_idle_time()
+        return await self._task_manager_ref.get_last_idle_time()
 
     async def remove_tileables(self, tileable_keys: List[str]):
-        task_manager_ref = await self._get_task_manager_ref()
-        return await task_manager_ref.remove_tileables(tileable_keys)
+        return await self._task_manager_ref.remove_tileables(tileable_keys)
 
     async def save_task_info(self, task_info: Dict, path: str):
-        task_info_collector_ref = await self._get_task_info_collector_ref()
-        await task_info_collector_ref.save_task_info(task_info, path)
+        await self._task_info_collector_ref.save_task_info(task_info, path)

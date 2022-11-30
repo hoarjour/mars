@@ -1,23 +1,27 @@
 import asyncio
 import functools
+import logging
 import os
 import tempfile
 from typing import Dict, List
 import yaml
 
 from ... import oscar as mo
+from ...constants import MARS_LOG_PATH_KEY
 from ...core.operand import Fetch, FetchShuffle
 from ...services.subtask import Subtask, SubtaskGraph
 from ...services.task.core import Task
 from ...typing import ChunkType, TileableType
 from ...utils import calc_data_size
 
+logger = logging.getLogger(__name__)
+
 
 def collect_on_demand(f):
     @functools.wraps(f)
-    async def wrapper(*args, **kwargs):
-        if hasattr(args[0], "collect_task_info") and args[0].collect_task_info:
-            await f(*args, **kwargs)
+    async def wrapper(self, *args, **kwargs):
+        if self.collect_task_info:
+            await f(self, *args, **kwargs)
         else:
             pass
 
@@ -140,7 +144,7 @@ class TaskInfoCollector:
                                            store_sizes: Dict[str, int],
                                            memory_sizes: Dict[str, int],
                                            cost_times: Dict[str, Dict],
-                                           ):  # pragma: no cover
+                                           ):
         subtask_dict = dict()
         subtask_dict["band"] = band
         subtask_dict["slot_id"] = slot_id
@@ -165,7 +169,7 @@ class TaskInfoCollector:
                                            subtask: Subtask,
                                            execute_time: float,
                                            chunk: ChunkType,
-                                           processor_context):  # pragma: no cover
+                                           processor_context):
         op = chunk.op
         if isinstance(op, (Fetch, FetchShuffle)):
             return
@@ -204,24 +208,31 @@ class TaskInfoCollector:
         from .api.oscar import TaskAPI
 
         if self._task_api is None:
-            self._task_api = await TaskAPI.create(session_id, self._address)
+            self._task_api = await TaskAPI.create(session_id=session_id, local_address=self._address)
         await self._task_api.save_task_info(task_info, path)
 
 
 class TaskInfoCollectorActor(mo.Actor):
 
     def __init__(self):
-        self.yaml_root_dir = os.path.join(tempfile.tempdir, "mars_temp_yaml")
+        mars_temp_dir = os.environ.get(MARS_LOG_PATH_KEY)
+        if mars_temp_dir is None:
+            self.yaml_root_dir = os.path.join(tempfile.tempdir, "mars_task_infos")
+        else:
+            self.yaml_root_dir = os.path.abspath(os.path.join(mars_temp_dir, "../..", "mars_task_infos"))
+        logger.info(f"Save task info in {self.yaml_root_dir}")
 
     async def save_task_info(self, task_info: Dict, path: str):
-        abs_save_path = os.path.join(self.yaml_root_dir, path)
-        abs_save_dir, _ = os.path.split(abs_save_path)
-        if not os.path.exists(abs_save_dir):
-            os.makedirs(abs_save_dir)
+        def save_info(task_info_, path_):
+            abs_save_path = os.path.join(self.yaml_root_dir, path_)
+            abs_save_dir, _ = os.path.split(abs_save_path)
+            if not os.path.exists(abs_save_dir):
+                os.makedirs(abs_save_dir)
 
-        if os.path.isfile(abs_save_path):
-            mode = "a"
-        else:
-            mode = "w"
-        with open(abs_save_path, mode) as f:
-            await asyncio.to_thread(yaml.dump, task_info, f)
+            if os.path.isfile(abs_save_path):
+                mode = "a"
+            else:
+                mode = "w"
+            with open(abs_save_path, mode) as f:
+                yaml.dump(task_info_, f)
+        await asyncio.to_thread(save_info, task_info, path)

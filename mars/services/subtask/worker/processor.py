@@ -76,6 +76,7 @@ class SubtaskProcessor:
         meta_api: MetaAPI,
         worker_meta_api: WorkerMetaAPI,
         band: BandType,
+        slot_id: int,
         supervisor_address: str,
         engines: List[str] = None,
     ):
@@ -90,6 +91,7 @@ class SubtaskProcessor:
             ]
         )
         self._band = band
+        self._slot_id = slot_id
         self._supervisor_address = supervisor_address
         self._engines = engines if engines is not None else task_options.runtime_engines
 
@@ -452,7 +454,7 @@ class SubtaskProcessor:
         self.result.progress = 1.0
         self.is_done.set()
 
-    async def run(self, slot_id: int):
+    async def run(self):
         cost_times = defaultdict(dict)
         self.result.status = SubtaskStatus.running
         input_keys = None
@@ -509,7 +511,7 @@ class SubtaskProcessor:
             cost_times["store_meta_time"]["end_time"] = time.time()
             await self._task_info_collector.collect_runtime_subtask_info(self.subtask,
                                                                          self._band,
-                                                                         slot_id,
+                                                                         self._slot_id,
                                                                          stored_keys,
                                                                          store_sizes,
                                                                          memory_sizes,
@@ -656,10 +658,11 @@ class SubtaskProcessorActor(mo.Actor):
             self._meta_api,
             self._worker_meta_api,
             self._band,
+            slot_id,
             self._supervisor_address,
         )
         self._processor = self._last_processor = processor
-        self._running_aio_task = asyncio.create_task(processor.run(slot_id))
+        self._running_aio_task = asyncio.create_task(processor.run())
         try:
             result = yield self._running_aio_task
             logger.info("Finished subtask: %s", subtask.subtask_id)
