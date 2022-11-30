@@ -26,6 +26,10 @@ class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
     def is_atomic(self):
         return True
 
+    @classmethod
+    def tile(cls, op):
+        pass
+
 
 def all_series(
     series,
@@ -60,13 +64,14 @@ def all_dataframe(
     method=None,
 ):
     use_inf_as_na = options.dataframe.mode.use_inf_as_na
+    output_types = [OutputType.series] if axis else [OutputType.scalar]
     op = DataFrameAll(
         axis=axis,
         skipna=skipna,
         level=level,
         bool_only=bool_only,
         combine_size=combine_size,
-        output_types=[OutputType.series],
+        output_types=output_types,
         use_inf_as_na=use_inf_as_na,
         method=method,
     )
