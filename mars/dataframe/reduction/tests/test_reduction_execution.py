@@ -469,6 +469,9 @@ def test_dataframe_bool_reduction(setup, check_ref_counts, func_name):
     r = compute(md.DataFrame(data, chunk_size=3), axis=1)
     pd.testing.assert_series_equal(compute(data, axis=1), r.execute().fetch())
 
+    r = compute(md.DataFrame(data, chunk_size=3), axis=None)
+    assert compute(data, axis=None) == r.execute().fetch()
+
     # test null
     np_data = rs.rand(20, 10)
     np_data[np_data > 0.6] = np.nan

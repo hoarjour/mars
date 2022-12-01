@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import pandas as pd
 
 from ... import opcodes as OperandDef
 from ...config import options
 from ...core import OutputType
-from .core import DataFrameReductionOperand, DataFrameReductionMixin
+from .core import DataFrameReductionOperand, DataFrameReductionMixin, recursive_tile, SERIES_TYPE
 
 
 class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
@@ -28,12 +29,51 @@ class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
 
     @classmethod
     def tile(cls, op):
-        pass
+        in_df = op.inputs[0]
+        out_df = op.outputs[0]
+        if op.axis is not None or isinstance(in_df, SERIES_TYPE):
+            return (yield from super().tile(op))
+        else:
+            dtypes = pd.Series([out_df.dtype])
+            index = in_df.dtypes.index
+
+            out_df = yield from recursive_tile(
+                in_df.agg(
+                    cls.get_reduction_callable(op),
+                    axis=0,
+                    _numeric_only=op.numeric_only,
+                    _bool_only=op.bool_only,
+                    _combine_size=op.combine_size,
+                    _output_type=OutputType.series,
+                    _dtypes=dtypes,
+                    _index=index,
+                )
+            )
+            out_df = yield from recursive_tile(
+                out_df.agg(
+                    cls.get_reduction_callable(op),
+                    axis=0,
+                    _numeric_only=op.numeric_only,
+                    _bool_only=op.bool_only,
+                    _combine_size=op.combine_size,
+                    _output_type=OutputType.scalar,
+                    _dtypes=out_df.dtype,
+                    _index=None,
+                )
+            )
+
+            return [out_df]
+
+    def __call__(self, df):
+        if self.axis is not None or isinstance(df, SERIES_TYPE):
+            return super().__call__(df)
+        else:
+            return self.new_scalar([df], bool)
 
 
 def all_series(
     series,
-    axis=None,
+    axis=0,
     bool_only=None,
     skipna=True,
     level=None,
@@ -56,7 +96,7 @@ def all_series(
 
 def all_dataframe(
     df,
-    axis=None,
+    axis=0,
     bool_only=None,
     skipna=True,
     level=None,
@@ -64,7 +104,7 @@ def all_dataframe(
     method=None,
 ):
     use_inf_as_na = options.dataframe.mode.use_inf_as_na
-    output_types = [OutputType.series] if axis else [OutputType.scalar]
+    output_types = [OutputType.series] if axis is not None else [OutputType.scalar]
     op = DataFrameAll(
         axis=axis,
         skipna=skipna,
