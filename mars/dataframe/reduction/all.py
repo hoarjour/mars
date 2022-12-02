@@ -16,7 +16,12 @@ import pandas as pd
 from ... import opcodes as OperandDef
 from ...config import options
 from ...core import OutputType
-from .core import DataFrameReductionOperand, DataFrameReductionMixin, recursive_tile, SERIES_TYPE
+from .core import (
+    DataFrameReductionOperand,
+    DataFrameReductionMixin,
+    recursive_tile,
+    SERIES_TYPE,
+)
 
 
 class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
@@ -36,7 +41,6 @@ class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
         else:
             dtypes = pd.Series([out_df.dtype])
             index = in_df.dtypes.index
-
             out_df = yield from recursive_tile(
                 in_df.agg(
                     cls.get_reduction_callable(op),
