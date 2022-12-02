@@ -250,6 +250,10 @@ def test_dataframe_reduction(
     pd.testing.assert_series_equal(
         compute(data, axis="index", numeric_only=True), r.execute().fetch()
     )
+    r = compute(md.DataFrame(data), axis="index", numeric_only=True)
+    pd.testing.assert_series_equal(
+        compute(data, axis="index", numeric_only=True), r.execute().fetch()
+    )
 
     data1 = pd.DataFrame(rs.rand(10, 10), columns=[str(i) for i in range(10)])
     data2 = pd.DataFrame(rs.rand(10, 10), columns=[str(i) for i in range(10)])

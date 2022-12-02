@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import numpy as np
 import pandas as pd
 
 from ... import opcodes as OperandDef
@@ -20,7 +22,7 @@ from .core import (
     DataFrameReductionOperand,
     DataFrameReductionMixin,
     recursive_tile,
-    SERIES_TYPE,
+    DATAFRAME_TYPE,
 )
 
 
@@ -36,9 +38,7 @@ class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
     def tile(cls, op):
         in_df = op.inputs[0]
         out_df = op.outputs[0]
-        if op.axis is not None or isinstance(in_df, SERIES_TYPE):
-            return (yield from super().tile(op))
-        else:
+        if op.axis is None and isinstance(in_df, DATAFRAME_TYPE):
             dtypes = pd.Series([out_df.dtype])
             index = in_df.dtypes.index
             out_df = yield from recursive_tile(
@@ -65,14 +65,15 @@ class DataFrameAll(DataFrameReductionOperand, DataFrameReductionMixin):
                     _index=None,
                 )
             )
-
             return [out_df]
+        else:
+            return (yield from super().tile(op))
 
     def __call__(self, df):
-        if self.axis is not None or isinstance(df, SERIES_TYPE):
-            return super().__call__(df)
+        if self.axis is None and isinstance(df, DATAFRAME_TYPE):
+            return self.new_scalar([df], np.bool)
         else:
-            return self.new_scalar([df], bool)
+            return super().__call__(df)
 
 
 def all_series(
